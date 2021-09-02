@@ -1,0 +1,328 @@
+ADICIONAR OS CODIGOS PARA O LCD
+
+
+STATUSCORTINA: DS 1
+AUX: DS 2
+CARACTER: DS 1
+
+CONFIGURA:
+	MOV #$40,CONFIG2 	;IRQ HABILITADA COM PULLUP,3.2MHZ,SEM RESET
+	MOV #$19,CONFIG1 	;SEM COP LVI, STOP ILEGAL, +5V
+	MOV #$00,DDRA 		;TODAS PORTAS ENTRADA
+	MOV #$FF,DDRB 		;TODAS AS PORTAS SAIDA
+	MOV #$1F,PTAPUE   	;PULLUP NO PTA4..PTA0
+	MOV #$00,INTSCR   	;IRQ HABILITADA NA DESCIDA
+	MOV #$30,TSC 		;PARAR E RESETAR
+	MOV #$40, TSC		;HABILITA A ROTTIMER 
+  LDHX #$100
+  TXS          			;PASSA A PILHA PRO FINAL DA RAM
+  LDHX #50000  			;3.2MHz/64 = 50000 = 1s 
+  STHX TMODH 
+  CLI         			;HABILITA TODAS AS INTERRUPCOES   
+  JSR LCD_INIT
+  
+INICIO:
+	BRSET 4, PTA, AUTOMATICO
+	JMP INICIO
+
+AUTOMATICO:
+	BRSET 5,PTA,ABRECORTINA
+	BRCLR 5,PTA,FECHACORTINA
+	RTS ;JMP SEI LA
+
+ABRECORTINA:
+	MOV #$40,PTB
+	JSR LCD_CLR
+	MOV #$03,CARACTER
+	JSR LCD_GO_TO
+	LDHX #INFO1
+	JSR VARRELETRAS
+	MOV #$04,STATUSCORTINA
+	JSR DELAY4
+	BRCLR 3,PTA,PARAMOTOR
+	RTS ;JMP ABRECORTINA	
+
+FECHACORTINA:
+	MOV #$80,PTB 
+	JSR LCD_CLR
+	MOV #$03,CARACTER
+	JSR LCD_GO_TO
+	LDHX #INFO2
+	JSR VARRELETRAS
+	MOV #$08,STATUSCORTINA
+	JSR DELAY4
+	BRCLR 3,PTA,PARAMOTOR
+	RTS ;JMP FECHACORTINA	
+
+PARAMOTOR:
+	MOV #$00,PTB
+	JSR LCD_CLR
+	MOV #$03,CARACTER
+	JSR LCD_GO_TO
+	LDHX #INFO5
+	JSR VARRELETRAS 
+	JSR DELAY4 	
+	JSR LCD_CLR
+	;JMP INICIO
+	RTS ;ACHO QUE NAO PODE SER RTS, POIS IRA RETORNAR PARA 
+		;ONDE FOI CHAMADO
+	 
+DELAY4:     ;DELAY PARA FICAR POR 4s
+	MOV #$04,TEMPO
+	BNE DELAY4
+	RTS 
+
+CONTROLE:
+	BRCLR 1,PTA,MOVECORTINA
+	BRSET 1,PTA,ROTINADISPLAY	
+	
+MOVECORTINA:
+	BRCLR 0,PTA,ABRECORTINA	
+	BRSET 0,PTA,FECHACORTINA
+	;O RETORNO OCORRE EM "PARAMOTOR" MESMO SENDO RTS?	
+	;TALVEZ AQUI DEVESSE TER UM JSR SAIROTINA
+	JMP SAIROTINA
+	
+ROTINADISPLAY:
+	BRSET 0,PTA,SAIROTINA
+	LDA STATUSCORTINA 
+	CMP #$08
+	BEQ FECHADO
+	JSR LCD_CLR
+	MOV #$05,CARACTER
+	JSR LCD_GO_TO
+	LDHX #INFO3
+	JSR VARRELETRAS
+	JSR DELAY8
+	JMP SAIROTINA ;JSR SAIROTINA
+
+FECHADO:	
+	JSR LCD_CLR
+	MOV #$05,CARACTER
+	JSR LCD_GO_TO
+	LDHX #INFO4
+	JSR VARRELETRAS
+	JSR DELAY8
+	JSR SAIROTINA
+
+DELAY8:     ;DELAY PARA FICAR POR 8s
+	MOV #$08,TEMPO
+	BNE DELAY8
+	RTS 
+
+SAIROTINA: 
+	CLR INTSCR ;REABILITA PEDESTRE
+    BSET 2,INTSCR ;TIRA A PENDENCIA            
+    RTI
+
+ROTTIMER:
+	LDA TEMPO
+	DECA
+	STA TEMPO 
+	BCLR 7,TSC 
+
+
+
+
+              ; *********************** Escreve uma string no display ******************    
+VARRELETRAS:
+   LDA ,X
+   CMP #$00
+   BEQ L1			;RETORNE
+   BSET 4,PTB	;RS=1
+   STA CARACTER		;ESCRITA DE DADO
+   JSR LCD_WRITE
+   AIX #$01
+   BRA VARRELETRAS 
+L1:
+   BCLR 4, PTB	;RS=0
+   RTS    
+
+;************* CONVERTE A= 0N PARA A= (ASCII) **************** 
+HEXASC: 
+   AND #$0F
+   CMP #$0A
+   BCC ELETRA
+   ADD #$30
+   BRA SAIF
+ELETRA: 
+   ADD #$37
+SAIF:
+   RTS   
+; ******** Limpa o display e volta o cursor para a primeira posição ********   
+LCD_CLR:
+   BCLR 4,PTB		;RS=0
+   MOV #$01, CARACTER
+   JSR LCD_WRITE
+   JSR D5mseg
+   RTS         
+; ********************** Escreve no display no modo 4bits *******************
+LCD_WRITE:
+;mais significativo   
+   LDA CARACTER  ;XY
+   NSA   ;YX
+   AND #$0F; 0X 
+   STA AUX
+   LDA PTB
+   AND #$F0;PTB7...PTB4
+   ORA AUX
+   STA PTB
+   JSR ENABLE   
+;menos significativo   
+   LDA CARACTER ;XY
+   AND #$0F ;0Y
+    STA AUX
+   LDA PTB
+   AND #$F0;PTB7...PTB4
+   ORA AUX
+   STA PTB
+   JSR ENABLE
+   MOV #$FF,TEMPO1;\
+FICOU3:          ; |
+FICOU4:BRN FICOU4; |>DEMORA ~ 250useg     
+   DEC TEMPO1    ; |
+   BNE FICOU3    ;/
+   RTS      
+   
+;************ Move o cursor para a posição desejada variável "CARACTER" **********   
+LCD_GO_TO:
+   BCLR 4, PTB;RS=0
+   LDA CARACTER
+   ADD #$80		;DB7=1 para mover o cursor pelo lcd
+   STA CARACTER
+   JSR LCD_WRITE
+   RTS
+;******************** Pulso no enable *****************   
+ENABLE:
+   BSET 5, PTB
+   NOP
+   NOP
+   NOP
+   BCLR 5, PTB
+   RTS
+;*************** Inicialização do display no modo 4bits ********************
+LCD_INIT:
+   BCLR 4, PTB;RS=0
+   JSR D5mseg
+   JSR D5mseg
+   JSR D5mseg   
+   MOV #$03, PTB
+   JSR ENABLE
+   JSR D5mseg; DEMORA 5mseg   
+   MOV #$03, PTB
+   JSR ENABLE   
+   MOV #108, TEMPO;\
+FICOU:            ; |
+FICOU1:BRN FICOU1 ; |>DEMORA ~100useg     
+   DEC TEMPO      ; |
+   BNE FICOU      ;/
+   MOV #$03, PTB
+   JSR ENABLE   
+   JSR D5mseg; DEMORA 5mseg   
+   
+; RS  R/W DB7 DB6 DB5 DB4
+; 0   0   0   0   1  D/L  
+;D/L=0' 4bits | D/L=1 ' 8bits
+;(#$02)
+   
+   MOV #$02, PTB
+   JSR ENABLE   
+   MOV #8, TEMPO;\   
+FICOU2:         ; |    
+   JSR D5mseg   ; |> DEMORA ~40mseg
+   DEC TEMPO    ; |
+   BNE FICOU2   ;/     
+   
+;Function set:  DL = 0: 4 bit interface
+;                N = 1: 2 line display
+;                F = 0: 5 x 7 | F=1: 5x10
+;                        (#$28) 
+;RS  R/W DB7 DB6 DB5 DB4
+; 0   0   0   0   1   DL
+; 0   0   N   F   -   -       
+ 
+   MOV #$28, CARACTER
+   JSR LCD_WRITE   
+   
+
+;Display ON/OFF:D = 1: Display ligado
+;               C = 0: Cursor desligado
+;               B = 0: Cursor sem piscar
+;               (#$0C)  
+;RS  R/W DB7 DB6 DB5 DB4                
+; 0   0   0   0   0   0                  
+; 0   0   1   D   C   B  
+ 
+   MOV #$0C, CARACTER
+   JSR LCD_WRITE   
+   
+   JSR LCD_CLR;limpa o lcd e volta o cursor para 1ª posição
+
+;Entry mode set: I/D = 1: +1 (increment)
+;                S = 0: display parado
+;                 (#$06)
+
+;RS  R/W DB7 DB6 DB5 DB4 
+; 0   0   0   0   0   0   
+; 0   0   0   1  I/D  S   
+
+   MOV #$06,CARACTER
+   JSR LCD_WRITE
+   RTS   
+;****************ESCREVE 1BYTE ************************
+ESCREVE:
+   PSHX
+   PSHA
+   TAX;X=A2A1
+;mais significativo   
+   NSA;A1A2
+   AND #$0F;0A2
+   JSR HEXASC
+   STA CARACTER
+   BSET 4,PTB;RS=1
+   JSR LCD_WRITE
+;menos significativo   
+   TXA;A=A2A1
+   AND #$0F;0A1
+   JSR HEXASC
+   STA CARACTER
+   JSR LCD_WRITE
+   BCLR 4,PTB;RS=0 "evitar a possibilidade de algum ruido escrever no lcd"
+   PULA
+   PULX
+   RTS 
+   
+;************delay*******************************  
+D5mseg:  MOV #14, TEMPO1
+Tgasto1: MOV #$FF, TEMPO1+1
+VOLTA0:  DEC TEMPO1+1
+        BNE VOLTA0
+        DEC TEMPO1
+        BNE Tgasto1
+        RTS
+	 
+INFO1: DC.B 'Abrindo...',$0
+INFO2: DC.B 'Fechando...',$0
+INFO3: DC.B 'Aberto',$0
+INFO4: DC.B 'Fechado',$0
+INFO5: DC.B 'Concluido',$0
+
+	;INCLUDE 'LCD.H'
+    ORG $FFFA ;VECTOR IRQ
+    DC.W CONTROLE
+    ORG $FFF2;VECTOR TIMER
+    DC.W ROTTIMER   
+	 
+END	 
+	 
+	 
+	 
+	 
+	 
+	 
+	 
+	 
+	 
+	 
+	 
+	 
