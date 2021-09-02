@@ -9,3 +9,5 @@ Eu ODIAVA quando eu apagava de cortina aberta e acordava com um sol de rachar no
 Bem, vocês podem ler os pdfs onde explicava ao responsável por coordenar o projeto, todas as facetas.
 Precisei de mixar C, Assembly e um pequeno código pra utilização de infravermelho.
 Feel free, e lembrem-se sempre, nenhuma dor é eterna!
+
+
